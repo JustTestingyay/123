@@ -177,6 +177,9 @@ public sealed class MeleeWeaponSystem : SharedMeleeWeaponSystem
         PhysicalShove(user, target);
         Interaction.DoContactInteraction(user, target);
 
+        var comboEv = new ComboAttackPerformedEvent(user, target, meleeUid, ComboAttackType.Disarm);
+        RaiseLocalEvent(user, comboEv);
+
         if (_mobState.IsIncapacitated(target))
             return true;
 
@@ -198,9 +201,6 @@ public sealed class MeleeWeaponSystem : SharedMeleeWeaponSystem
         }
 
         Interaction.DoContactInteraction(user, target);
-
-        var comboEv = new ComboAttackPerformedEvent(user, target, meleeUid, ComboAttackType.Disarm);
-        RaiseLocalEvent(user, comboEv);
 
         var attemptEvent = new DisarmAttemptEvent(target, user, inTargetHand);
         if (inTargetHand != null)
@@ -265,7 +265,7 @@ public sealed class MeleeWeaponSystem : SharedMeleeWeaponSystem
         }
     }
 
-    protected override bool InRange(EntityUid user, EntityUid target, float range, ICommonSession? session)
+    public override bool InRange(EntityUid user, EntityUid target, float range, ICommonSession? session) // Goob edit
     {
         EntityCoordinates targetCoordinates;
         Angle targetLocalAngle;
