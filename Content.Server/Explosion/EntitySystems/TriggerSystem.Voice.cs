@@ -5,6 +5,9 @@
 // SPDX-FileCopyrightText: 2023 DrSmugleaf <DrSmugleaf@users.noreply.github.com>
 // SPDX-FileCopyrightText: 2024 Krunklehorn <42424291+Krunklehorn@users.noreply.github.com>
 // SPDX-FileCopyrightText: 2025 Aiden <28298836+Aidenkrz@users.noreply.github.com>
+// SPDX-FileCopyrightText: 2025 ArtisticRoomba <145879011+ArtisticRoomba@users.noreply.github.com>
+// SPDX-FileCopyrightText: 2025 GoobBot <uristmchands@proton.me>
+// SPDX-FileCopyrightText: 2025 SolsticeOfTheWinter <solsticeofthewinter@gmail.com>
 //
 // SPDX-License-Identifier: MIT
 
@@ -27,12 +30,13 @@ namespace Content.Server.Explosion.EntitySystems
             SubscribeLocalEvent<TriggerOnVoiceComponent, ListenEvent>(OnListen);
         }
 
-        private void OnVoiceInit(EntityUid uid, TriggerOnVoiceComponent component, ComponentInit args)
+        private void OnVoiceInit(EntityUid uid, TriggerOnVoiceComponent comp, ComponentInit args)
         {
-            if (component.IsListening)
-                EnsureComp<ActiveListenerComponent>(uid).Range = component.ListenRange;
+            if (comp.IsListening)
+                EnsureComp<ActiveListenerComponent>(uid).Range = comp.ListenRange;
             else
                 RemCompDeferred<ActiveListenerComponent>(uid);
+
         }
 
         private void OnListen(Entity<TriggerOnVoiceComponent> ent, ref ListenEvent args)
@@ -63,6 +67,9 @@ namespace Content.Server.Explosion.EntitySystems
                 _adminLogger.Add(LogType.Trigger, LogImpact.High,
                         $"A voice-trigger on {ToPrettyString(ent):entity} was triggered by {ToPrettyString(args.Source):speaker} speaking the key-phrase {component.KeyPhrase}.");
                 Trigger(ent, args.Source);
+
+                var voice = new VoiceTriggeredEvent(args.Source, message);
+                RaiseLocalEvent(ent, ref voice);
             }
         }
 
@@ -147,3 +154,12 @@ namespace Content.Server.Explosion.EntitySystems
         }
     }
 }
+
+
+/// <summary>
+///    Raised when a voice trigger is activated, containing the message that triggered it.
+/// </summary>
+/// <param name="Source"> The EntityUid of the entity sending the message</param>
+/// <param name="Message"> The contents of the message</param>
+[ByRefEvent]
+public readonly record struct VoiceTriggeredEvent(EntityUid Source, string? Message);

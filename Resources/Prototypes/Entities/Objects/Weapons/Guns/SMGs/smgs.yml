@@ -47,11 +47,14 @@
 # SPDX-FileCopyrightText: 2024 username <113782077+whateverusername0@users.noreply.github.com>
 # SPDX-FileCopyrightText: 2024 whateverusername0 <whateveremail>
 # SPDX-FileCopyrightText: 2025 Aiden <28298836+Aidenkrz@users.noreply.github.com>
+# SPDX-FileCopyrightText: 2025 Armok <155400926+ARMOKS@users.noreply.github.com>
 # SPDX-FileCopyrightText: 2025 BramvanZijp <56019239+BramvanZijp@users.noreply.github.com>
+# SPDX-FileCopyrightText: 2025 GoobBot <uristmchands@proton.me>
 # SPDX-FileCopyrightText: 2025 K-Dynamic <20566341+K-Dynamic@users.noreply.github.com>
 # SPDX-FileCopyrightText: 2025 Killerqu00 <47712032+Killerqu00@users.noreply.github.com>
 # SPDX-FileCopyrightText: 2025 SX-7 <92227810+SX-7@users.noreply.github.com>
 # SPDX-FileCopyrightText: 2025 Theodore Lukin <66275205+pheenty@users.noreply.github.com>
+# SPDX-FileCopyrightText: 2025 pheenty <fedorlukin2006@gmail.com>
 #
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
@@ -115,7 +118,14 @@
   - type: StaticPrice
     price: 500
   - type: Multishot # Goobstation
-    spreadMultiplier: 1.4
+    spreadMultiplier: 2
+  - type: RestrictGunshotsByUserTag # Goobstation
+    doesntContain:
+    - Oni
+    messages:
+    - oni-cannot-shoot-guns-1
+    - oni-cannot-shoot-guns-2
+    - oni-cannot-shoot-guns-3
 
 - type: entity
   name: Atreides
@@ -182,7 +192,7 @@
   name: Drozd
   parent: [BaseWeaponSubMachineGun, BaseSecurityContraband]
   id: WeaponSubMachineGunDrozd
-  description: An excellent fully automatic Heavy SMG.
+  description: An excellent burst-fire Heavy SMG. # Goobstation edit
   components:
     - type: Sprite
       sprite: Objects/Weapons/Guns/SMGs/drozd.rsi
@@ -207,10 +217,11 @@
         path: /Audio/Weapons/Guns/Gunshots/atreides.ogg
       availableModes:
       - Burst
-      - FullAuto
-      - SemiAuto
-      shotsPerBurst: 3
-      burstCooldown: 0.25
+      #- FullAuto # Goobstation - start
+      #- SemiAuto
+      selectedMode: Burst
+      shotsPerBurst: 5
+      burstCooldown: 0.75 # Goobstation - end
     - type: ItemSlots
       slots:
         gun_magazine:
@@ -237,10 +248,10 @@
     - type: Appearance
 
 - type: entity
-  name: WT550
-  parent: [ BaseWeaponSubMachineGun, BaseSecurityContraband ]
+  name: WT550 autorifle # Goobstation
+  parent: [ BaseWeaponSubMachineGun, BaseSecurityContraband]
   id: WeaponSubMachineGunWt550
-  description: An excellent SMG, produced by NanoTrasen's Small Arms Division. Uses .35 auto ammo.
+  description: A cheaply made, mass produced auto-rifle produced by NanoTrasen's Small Arms Division. Uses .35 auto ammo. # Goobstation
   components:
   - type: Sprite
     sprite: Objects/Weapons/Guns/SMGs/wt550.rsi
@@ -260,7 +271,7 @@
   - type: ChamberMagazineAmmoProvider
     boltClosed: null
   - type: Gun
-    fireRate: 5.5
+    fireRate: 2.5 # Goobstation - down from 5.5 I am the one who knocks.
     minAngle: 1
     maxAngle: 6
     angleIncrease: 1.5
@@ -270,7 +281,6 @@
     burstCooldown: 0.2
     burstFireRate: 7
     availableModes:
-    - Burst
     - FullAuto
     - SemiAuto
   - type: ItemSlots
@@ -297,3 +307,5 @@
     steps: 6
     zeroVisible: true
   - type: Appearance
+  - type: Multishot # Goobstation
+    spreadMultiplier: 1.5

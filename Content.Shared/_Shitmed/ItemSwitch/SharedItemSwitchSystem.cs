@@ -16,6 +16,7 @@ using Content.Shared.Popups;
 using Content.Shared.Verbs;
 using Robust.Shared.Audio.Systems;
 using Robust.Shared.Network;
+using Content.Shared.Weapons.Melee;
 
 namespace Content.Shared._Shitmed.ItemSwitch;
 public abstract class SharedItemSwitchSystem : EntitySystem
@@ -40,6 +41,7 @@ public abstract class SharedItemSwitchSystem : EntitySystem
         SubscribeLocalEvent<ItemSwitchComponent, UseInHandEvent>(OnUseInHand);
         SubscribeLocalEvent<ItemSwitchComponent, GetVerbsEvent<ActivationVerb>>(OnActivateVerb);
         SubscribeLocalEvent<ItemSwitchComponent, ActivateInWorldEvent>(OnActivate);
+        SubscribeLocalEvent<ItemSwitchComponent, ItemSwitchAttemptEvent>(OnSwitchAttempt);
 
         SubscribeLocalEvent<ClothingComponent, ItemSwitchedEvent>(UpdateClothingLayer);
     }
@@ -61,29 +63,43 @@ public abstract class SharedItemSwitchSystem : EntitySystem
             Switch((ent, ent.Comp), state, predicted: ent.Comp.Predictable);
     }
 
+    private void OnSwitchAttempt(Entity<ItemSwitchComponent> ent, ref ItemSwitchAttemptEvent args)
+    {
+        if (ent.Comp is { IsPowered: false, NeedsPower: true } && ent.Comp.State == ent.Comp.DefaultState)
+        {
+            args.Popup = Loc.GetString("item-switch-failed-no-power");
+            args.Cancelled = true;
+            Dirty(ent);
+        }
+    }
+
     private void OnUseInHand(Entity<ItemSwitchComponent> ent, ref UseInHandEvent args)
     {
-        if (args.Handled || !ent.Comp.OnUse || ent.Comp.States.Count == 0) return;
-        args.Handled = true;
+        var comp = ent.Comp;
 
-        if (ent.Comp.States.TryGetValue(Next(ent), out var state) && state.Hidden)
+        if (args.Handled || !comp.OnUse || comp.States.Count == 0)
             return;
 
-        Switch((ent, ent.Comp), Next(ent), args.User, predicted: ent.Comp.Predictable);
+        args.Handled = true;
+
+        if (comp.States.TryGetValue(Next(ent), out var state) && state.Hidden)
+            return;
+
+        Switch((ent, comp), Next(ent), args.User, predicted: comp.Predictable);
     }
 
     private void OnActivateVerb(Entity<ItemSwitchComponent> ent, ref GetVerbsEvent<ActivationVerb> args)
     {
-        if (!args.CanAccess || !args.CanInteract || !ent.Comp.OnActivate || ent.Comp.States.Count == 0) return;
+        var comp = ent.Comp;
+
+        if (!args.CanAccess || !args.CanInteract || !comp.OnActivate || comp.States.Count == 0)
+            return;
 
         var user = args.User;
-        int addedVerbs = 0;
+        var addedVerbs = 0;
 
-        foreach (var state in ent.Comp.States)
+        foreach (var state in comp.States.Where(state => !state.Value.Hidden)) // I'm linq-ing all over the place.
         {
-            if (state.Value.Hidden)
-                continue;
-
             args.Verbs.Add(new ActivationVerb()
             {
                 Text = Loc.TryGetString(state.Value.Verb, out var title) ? title : state.Value.Verb,
@@ -99,15 +115,20 @@ public abstract class SharedItemSwitchSystem : EntitySystem
 
     private void OnActivate(Entity<ItemSwitchComponent> ent, ref ActivateInWorldEvent args)
     {
-        if (args.Handled || !ent.Comp.OnActivate)
+        var comp = ent.Comp;
+
+        if (args.Handled || !comp.OnActivate)
+            return;
+
+        if (comp is { IsPowered: false, NeedsPower: true })
             return;
 
         args.Handled = true;
 
-        if (ent.Comp.States.TryGetValue(Next(ent), out var state) && state.Hidden)
+        if (comp.States.TryGetValue(Next(ent), out var state) && state.Hidden)
             return;
 
-        Switch((ent.Owner, ent.Comp), Next(ent), args.User, predicted: ent.Comp.Predictable);
+        Switch((ent.Owner, comp), Next(ent), args.User, predicted: comp.Predictable);
     }
 
     private static string Next(Entity<ItemSwitchComponent> ent)
@@ -151,6 +172,10 @@ public abstract class SharedItemSwitchSystem : EntitySystem
         };
         RaiseLocalEvent(uid, ref attempt);
 
+        TimeSpan nextAttack = new TimeSpan(0);
+        if (TryComp<MeleeWeaponComponent>(ent, out var meleeComp))
+            nextAttack = meleeComp.NextAttack;
+
         if (ent.Comp.States.TryGetValue(ent.Comp.State, out var prevState)
             && prevState.RemoveComponents
             && prevState.Components is not null)
@@ -158,6 +183,9 @@ public abstract class SharedItemSwitchSystem : EntitySystem
 
         if (state.Components is not null)
             EntityManager.AddComponents(ent, state.Components);
+
+        if (TryComp<MeleeWeaponComponent>(ent, out meleeComp) && nextAttack.Ticks != 0)
+            meleeComp.NextAttack = nextAttack;
 
         if (!comp.Predictable) predicted = false;
 
@@ -168,11 +196,13 @@ public abstract class SharedItemSwitchSystem : EntitySystem
             else
                 _audio.PlayPvs(state.SoundFailToActivate, uid);
 
-            if (attempt.Popup != null && user != null)
-                if (predicted)
-                    _popup.PopupClient(attempt.Popup, uid, user.Value);
-                else
-                    _popup.PopupEntity(attempt.Popup, uid, user.Value);
+            if (attempt.Popup == null || user == null)
+                return false;
+
+            if (predicted)
+                _popup.PopupClient(attempt.Popup, uid, user.Value);
+            else
+                _popup.PopupEntity(attempt.Popup, uid, user.Value);
 
             return false;
         }
@@ -193,7 +223,6 @@ public abstract class SharedItemSwitchSystem : EntitySystem
     }
     public virtual void VisualsChanged(Entity<ItemSwitchComponent> ent, string key)
     {
-
     }
     protected virtual void UpdateVisuals(Entity<ItemSwitchComponent> ent, string key)
     {
@@ -204,5 +233,7 @@ public abstract class SharedItemSwitchSystem : EntitySystem
         VisualsChanged(ent, key);
     }
     private void UpdateClothingLayer(Entity<ClothingComponent> ent, ref ItemSwitchedEvent args)
-        => _clothing.SetEquippedPrefix(ent, args.State, ent.Comp);
+    {
+        _clothing.SetEquippedPrefix(ent, args.State, ent.Comp);
+    }
 }
