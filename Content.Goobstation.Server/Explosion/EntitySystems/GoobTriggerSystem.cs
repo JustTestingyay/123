@@ -8,20 +8,27 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using Content.Goobstation.Server.Explosion.Components;
+using Content.Goobstation.Server.Explosion.Components.OnTrigger;
+using Content.Server._Goobstation.Explosion.Components;
+using Content.Server.Explosion.Components;
 using Content.Server.Explosion.EntitySystems;
 using Content.Shared.Hands.Components;
 using Content.Shared.Hands.EntitySystems;
+using Content.Shared.Inventory;
 
 namespace Content.Goobstation.Server.Explosion.EntitySystems;
 
 public sealed partial class GoobTriggerSystem : EntitySystem
 {
     [Dependency] private readonly SharedHandsSystem _hands = default!;
+    [Dependency] private readonly TriggerSystem _trigger = default!;
+    [Dependency] private readonly InventorySystem _inventory = default!;
     public override void Initialize()
     {
         base.Initialize();
+        InitializeMelee();
         SubscribeLocalEvent<DeleteParentOnTriggerComponent, TriggerEvent>(HandleDeleteParentTrigger);
-        SubscribeLocalEvent<Components.OnTrigger.DropOnTriggerComponent, TriggerEvent>(HandleDropOnTrigger);
+        SubscribeLocalEvent<DropOnTriggerComponent, TriggerEvent>(HandleDropOnTrigger);
     }
 
     private void HandleDeleteParentTrigger(Entity<DeleteParentOnTriggerComponent> entity, ref TriggerEvent args)
@@ -30,17 +37,18 @@ public sealed partial class GoobTriggerSystem : EntitySystem
         args.Handled = true;
     }
 
-    private void HandleDropOnTrigger(Entity<Components.OnTrigger.DropOnTriggerComponent> entity, ref TriggerEvent args)
+    private void HandleDropOnTrigger(Entity<DropOnTriggerComponent> entity, ref TriggerEvent args)
     {
-        if (!TryComp(entity, out HandsComponent? hands))
+        if (!TryComp(entity, out HandsComponent? hands) || !_inventory.TryGetContainingEntity(entity.Owner, out var containingEntity))
             return;
 
-        foreach (var hand in _hands.EnumerateHands(entity, hands))
+
+        foreach (var hand in _hands.EnumerateHands(containingEntity.Value, hands))
         {
             if (hand.HeldEntity == null)
                 continue;
 
-            _hands.TryDrop(entity, hand, handsComp: hands);
+            _hands.TryDrop(containingEntity.Value, hand, handsComp: hands);
         }
         args.Handled = true;
     }

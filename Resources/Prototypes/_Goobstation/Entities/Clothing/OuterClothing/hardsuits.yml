@@ -289,8 +289,8 @@
     knockdownTimeDelta: -2
   - type: StaminaDamageResistance
     coefficient: 0.5
-  - type: ClothingGrantComponent
-    component:
-    - type: ClothingAutoInject
-      proto: Stimulants
+  - type: ClothingAutoInject
+    reagents:
+      Epinephrine: 10
+      Bicaridine: 10
 
