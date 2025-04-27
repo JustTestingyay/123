@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: 2025 Aiden <28298836+Aidenkrz@users.noreply.github.com>
 // SPDX-FileCopyrightText: 2025 Aidenkrz <aiden@djkraz.com>
 // SPDX-FileCopyrightText: 2025 August Eymann <august.eymann@gmail.com>
-// SPDX-FileCopyrightText: 2025 Aviu00 <aviu00@protonmail.com>
 // SPDX-FileCopyrightText: 2025 GoobBot <uristmchands@proton.me>
 // SPDX-FileCopyrightText: 2025 Lincoln McQueen <lincoln.mcqueen@gmail.com>
 // SPDX-FileCopyrightText: 2025 Misandry <mary@thughunt.ing>
@@ -12,26 +11,17 @@
 using System.Linq;
 using Content.Goobstation.Common.MartialArts;
 using Content.Goobstation.Shared.MartialArts.Components;
-using Content.Goobstation.Shared.Stealth;
-using Content.Shared._Goobstation.Heretic.Components;
 using Content.Shared._Shitmed.Targeting;
-using Content.Shared._White.BackStab;
 using Content.Shared._White.Grab;
-using Content.Shared.ActionBlocker;
 using Content.Shared.Actions;
-using Content.Shared.Alert;
 using Content.Shared.Damage;
+using Content.Shared.Damage.Components;
 using Content.Shared.Damage.Systems;
 using Content.Shared.Hands.EntitySystems;
 using Content.Shared.IdentityManagement;
-using Content.Shared.Interaction;
-using Content.Shared.Mobs;
-using Content.Shared.Mobs.Components;
-using Content.Shared.Mobs.Systems;
 using Content.Shared.Movement.Pulling.Components;
 using Content.Shared.Movement.Pulling.Events;
 using Content.Shared.Movement.Pulling.Systems;
-using Content.Shared.Movement.Systems;
 using Content.Shared.Popups;
 using Content.Shared.Speech;
 using Content.Shared.Standing;
@@ -40,10 +30,8 @@ using Content.Shared.Stunnable;
 using Content.Shared.Weapons.Melee;
 using Content.Shared.Weapons.Melee.Events;
 using Content.Shared.Weapons.Ranged.Events;
-using Robust.Shared.Audio;
 using Robust.Shared.Audio.Systems;
 using Robust.Shared.Network;
-using Robust.Shared.Physics.Components;
 using Robust.Shared.Prototypes;
 using Robust.Shared.Random;
 using Robust.Shared.Timing;
@@ -72,13 +60,6 @@ public abstract partial class SharedMartialArtsSystem : EntitySystem
     [Dependency] private readonly SharedActionsSystem _actions = default!;
     [Dependency] private readonly INetManager _netManager = default!;
     [Dependency] private readonly StandingStateSystem _standingState = default!;
-    [Dependency] private readonly ActionBlockerSystem _blocker = default!;
-    [Dependency] private readonly MovementSpeedModifierSystem _modifier = default!;
-    [Dependency] private readonly AlertsSystem _alerts = default!;
-    [Dependency] private readonly SharedMeleeWeaponSystem _melee = default!;
-    [Dependency] private readonly BackStabSystem _backstab = default!;
-    [Dependency] private readonly SharedGoobStealthSystem _stealth = default!;
-    [Dependency] private readonly MobStateSystem _mobState = default!;
 
     public override void Initialize()
     {
@@ -87,24 +68,13 @@ public abstract partial class SharedMartialArtsSystem : EntitySystem
         InitializeSleepingCarp();
         InitializeCqc();
         InitializeCorporateJudo();
-        InitializeCapoeira();
-        InitializeDragon();
-        InitializeNinjutsu();
         InitializeCanPerformCombo();
 
         SubscribeLocalEvent<MartialArtsKnowledgeComponent, ComponentShutdown>(OnShutdown);
         SubscribeLocalEvent<MartialArtsKnowledgeComponent, CheckGrabOverridesEvent>(CheckGrabStageOverride);
-        SubscribeLocalEvent<MeleeHitEvent>(OnMeleeHit);
+        SubscribeLocalEvent<MartialArtsKnowledgeComponent, MeleeHitEvent>(OnMeleeHit);
         SubscribeLocalEvent<MartialArtsKnowledgeComponent, ShotAttemptedEvent>(OnShotAttempt);
-        SubscribeLocalEvent<MartialArtsKnowledgeComponent, ComboAttackPerformedEvent>(OnComboAttackPerformed);
-
         SubscribeLocalEvent<KravMagaSilencedComponent, SpeakAttemptEvent>(OnSilencedSpeakAttempt);
-
-        SubscribeLocalEvent<MartialArtModifiersComponent, GetMeleeAttackRateEvent>(OnGetMeleeAttackRate);
-        SubscribeLocalEvent<MartialArtModifiersComponent, MeleeHitEvent>(OnGetMeleeHitDamage);
-        SubscribeLocalEvent<MartialArtModifiersComponent, RefreshMovementSpeedModifiersEvent>(OnGetMovespeed);
-
-        SubscribeLocalEvent<InteractHandEvent>(OnInteract);
     }
 
     public override void Update(float frameTime)
@@ -112,17 +82,12 @@ public abstract partial class SharedMartialArtsSystem : EntitySystem
         base.Update(frameTime);
 
         var query = EntityQueryEnumerator<CanPerformComboComponent>();
-        while (query.MoveNext(out var ent, out var comp))
+        while (query.MoveNext(out _, out var comp))
         {
-            if (_timing.CurTime < comp.ResetTime)
+            if (_timing.CurTime < comp.ResetTime || comp.LastAttacks.Count <= 0)
                 continue;
-
-            if (comp.LastAttacks.Count == 0 && comp.ConsecutiveGnashes == 0)
-                continue;
-
             comp.LastAttacks.Clear();
             comp.ConsecutiveGnashes = 0;
-            Dirty(ent, comp);
         }
 
         var kravSilencedQuery = EntityQueryEnumerator<KravMagaSilencedComponent>();
@@ -130,7 +95,7 @@ public abstract partial class SharedMartialArtsSystem : EntitySystem
         {
             if (_timing.CurTime < comp.SilencedTime)
                 continue;
-            RemCompDeferred(ent, comp);
+            RemComp<KravMagaSilencedComponent>(ent);
         }
 
         var kravBlockedQuery = EntityQueryEnumerator<KravMagaBlockedBreathingComponent>();
@@ -138,195 +103,18 @@ public abstract partial class SharedMartialArtsSystem : EntitySystem
         {
             if (_timing.CurTime < comp.BlockedTime)
                 continue;
-            RemCompDeferred(ent, comp);
-        }
-
-        var meleeAttackRateMultiplierQuery = EntityQueryEnumerator<MartialArtModifiersComponent>();
-        while (meleeAttackRateMultiplierQuery.MoveNext(out var ent, out var multiplier))
-        {
-            if (_timing.CurTime < multiplier.NextUpdate)
-                continue;
-
-            double? nextUpdate = null;
-            var refreshSpeed = false;
-            for (var i = multiplier.Data.Count - 1; i >= 0; i--)
-            {
-                var data = multiplier.Data[i];
-
-                if (_timing.CurTime < data.EndTime)
-                {
-                    nextUpdate = nextUpdate == null
-                        ? data.EndTime.TotalSeconds
-                        : Math.Min(nextUpdate.Value, data.EndTime.TotalSeconds);
-                    continue;
-                }
-
-                if ((data.Type & MartialArtModifierType.MoveSpeed) != 0)
-                    refreshSpeed = true;
-
-                multiplier.Data.RemoveAt(i);
-            }
-
-            if (refreshSpeed)
-                _modifier.RefreshMovementSpeedModifiers(ent);
-
-            if (multiplier.Data.Count == 0)
-                RemCompDeferred(ent, multiplier);
-            else
-            {
-                if (nextUpdate != null)
-                    multiplier.NextUpdate = TimeSpan.FromSeconds(nextUpdate.Value);
-                Dirty(ent, multiplier);
-            }
-        }
-
-        if (_netManager.IsClient)
-            return;
-
-        var dragonQuery =
-            EntityQueryEnumerator<DragonKungFuTimerComponent, StatusEffectsComponent, MobStateComponent, PhysicsComponent>();
-        while (dragonQuery.MoveNext(out var uid, out var timer, out var status, out var mobState, out var physics))
-        {
-            if (mobState.CurrentState != MobState.Alive)
-                continue;
-
-            if (physics.LinearVelocity.LengthSquared() > timer.MinVelocitySquared)
-            {
-                timer.LastMoveTime = _timing.CurTime;
-                continue;
-            }
-
-            if (!_blocker.CanInteract(uid, null))
-                continue;
-
-            if (_timing.CurTime < timer.LastMoveTime + timer.PauseDuration)
-                continue;
-
-            _status.TryAddStatusEffect<DragonPowerBuffComponent>(uid,
-                "DragonPower",
-                timer.BuffLength,
-                true,
-                status);
-
-            // So that it doesn't update constantly
-            timer.LastMoveTime = _timing.CurTime;
+            RemComp<KravMagaBlockedBreathingComponent>(ent);
         }
     }
 
     #region Event Methods
 
-    private void OnInteract(InteractHandEvent args)
-    {
-        if (!HasComp<MobStateComponent>(args.Target))
-            return;
-        RaiseLocalEvent(args.User, new ComboAttackPerformedEvent(args.User, args.Target, args.User, ComboAttackType.Hug));
-    }
-
-    private void OnComboAttackPerformed(Entity<MartialArtsKnowledgeComponent> ent, ref ComboAttackPerformedEvent args)
-    {
-        if (ent.Comp.Blocked)
-            return;
-
-        switch (ent.Comp.MartialArtsForm)
-        {
-            case MartialArtsForms.CloseQuartersCombat:
-                OnCQCAttackPerformed(ent, ref args);
-                break;
-            case MartialArtsForms.Capoeira:
-                OnCapoeiraAttackPerformed(ent, ref args);
-                break;
-        }
-    }
-
-    private void OnGetMeleeHitDamage(Entity<MartialArtModifiersComponent> ent, ref MeleeHitEvent args)
-    {
-        var (mult, mod) = GetMultiplierModifier(ent, MartialArtModifierType.Damage, args.Weapon != args.User);
-
-        args.ModifiersList.Add(GetDamageModifierSet(args.BaseDamage, mult, mod));
-    }
-
-
-    private void OnGetMovespeed(Entity<MartialArtModifiersComponent> ent, ref RefreshMovementSpeedModifiersEvent args)
-    {
-        var (mult, _) = GetMultiplierModifier(ent, MartialArtModifierType.MoveSpeed, null);
-        args.ModifySpeed(mult, mult);
-    }
-
-    private DamageModifierSet GetDamageModifierSet(DamageSpecifier specifier, float multiplier, float modifier)
-    {
-        return new()
-        {
-            Coefficients = specifier.DamageDict
-                .Select(x => KeyValuePair.Create(x.Key, multiplier))
-                .ToDictionary(),
-            FlatReduction = specifier.DamageDict
-                .Select(x => KeyValuePair.Create(x.Key, -modifier)) // Minus mod because it subtracts values from damage
-                .ToDictionary(),
-        };
-    }
-
-    private void OnGetMeleeAttackRate(Entity<MartialArtModifiersComponent> ent, ref GetMeleeAttackRateEvent args)
-    {
-        var (mult, mod) = GetMultiplierModifier(ent, MartialArtModifierType.AttackRate, args.Weapon != args.User);
-        args.Multipliers *= mult;
-        args.Rate += mod;
-    }
-
-    private (float mult, float mod) GetMultiplierModifier(Entity<MartialArtModifiersComponent> ent,
-        MartialArtModifierType type,
-        bool? armed)
-    {
-        var mult = 1f;
-        var mod = 0f;
-        foreach (var data in ent.Comp.Data.Where(x => (x.Type & type) != 0))
-        {
-            if (armed is true)
-            {
-                if ((data.Type & MartialArtModifierType.Armed) == 0 && (data.Type & MartialArtModifierType.Unarmed) != 0)
-                    continue;
-            }
-            else if (armed is false)
-            {
-                if ((data.Type & MartialArtModifierType.Unarmed) == 0 && (data.Type & MartialArtModifierType.Armed) != 0)
-                    continue;
-            }
-            mult *= data.Multiplier;
-            mod += data.Modifier;
-        }
-
-        foreach (var (_, limit) in ent.Comp.MinMaxModifiersMultipliers.Where(x => (x.Key & type) != 0))
-        {
-            mult = Math.Clamp(mult, limit.X, limit.Y);
-            mod = Math.Clamp(mod, limit.Z, limit.W);
-        }
-
-        return (mult, mod);
-    }
-
-    private void OnMeleeHit(MeleeHitEvent args)
+    private void OnMeleeHit(Entity<MartialArtsKnowledgeComponent> ent, ref MeleeHitEvent args)
     {
         if (args.Handled)
             return;
 
-        var ent = args.User;
-
-        if (!TryComp(ent, out MartialArtsKnowledgeComponent? comp))
-            return;
-
-        switch (comp.MartialArtsForm)
-        {
-            case MartialArtsForms.Ninjutsu:
-                OnNinjutsuMeleeHit(ent, ref args);
-                break;
-            case MartialArtsForms.Capoeira:
-                OnCapoeiraMeleeHit(ent, ref args);
-                break;
-        }
-
-        if (args.Weapon != ent)
-            return;
-
-        if(!_proto.TryIndex<MartialArtPrototype>(comp.MartialArtsForm.ToString(), out var martialArtsPrototype))
+        if(!_proto.TryIndex<MartialArtPrototype>(ent.Comp.MartialArtsForm.ToString(), out var martialArtsPrototype))
             return;
 
         if (!martialArtsPrototype.RandomDamageModifier)
@@ -340,13 +128,8 @@ public abstract partial class SharedMartialArtsSystem : EntitySystem
 
     private void OnShutdown(Entity<MartialArtsKnowledgeComponent> ent, ref ComponentShutdown args)
     {
-        if (TerminatingOrDeleted(ent))
-            return;
-
         if(TryComp<CanPerformComboComponent>(ent, out var comboComponent))
             comboComponent.AllowedCombos.Clear();
-
-        RemCompDeferred<DragonKungFuTimerComponent>(ent);
     }
 
     private void CheckGrabStageOverride<T>(EntityUid uid, T component, CheckGrabOverridesEvent args)
@@ -444,31 +227,6 @@ public abstract partial class SharedMartialArtsSystem : EntitySystem
             || !TryComp<MeleeWeaponComponent>(user, out var meleeWeaponComponent))
             return false;
 
-        switch (martialArtsPrototype.MartialArtsForm)
-        {
-            case MartialArtsForms.KungFuDragon:
-                EnsureComp<DragonKungFuTimerComponent>(user);
-                break;
-            case MartialArtsForms.Ninjutsu:
-                EnsureComp<NinjutsuSneakAttackComponent>(user);
-                break;
-            case MartialArtsForms.CloseQuartersCombat:
-                var riposte = EnsureComp<RiposteeComponent>(user);
-                riposte.Data.TryAdd("CQC",
-                    new(0.1f,
-                    false,
-                    null,
-                    true,
-                    new SoundPathSpecifier("/Audio/Weapons/genhit1.ogg"),
-                    TimeSpan.FromSeconds(4),
-                    true,
-                    false,
-                    0.75f,
-                    null,
-                    null));
-                break;
-        }
-
         martialArtsKnowledgeComponent.MartialArtsForm = martialArtsPrototype.MartialArtsForm;
         LoadCombos(martialArtsPrototype.RoundstartCombos, canPerformComboComponent);
         martialArtsKnowledgeComponent.Blocked = false;
@@ -502,7 +260,7 @@ public abstract partial class SharedMartialArtsSystem : EntitySystem
     }
 
     private bool TryUseMartialArt(Entity<CanPerformComboComponent> ent,
-        ComboPrototype proto,
+        MartialArtsForms form,
         out EntityUid target,
         out bool downed)
     {
@@ -515,42 +273,31 @@ public abstract partial class SharedMartialArtsSystem : EntitySystem
         if (!TryComp<MartialArtsKnowledgeComponent>(ent, out var knowledgeComponent))
             return false;
 
-        if (!proto.CanDoWhileProne && IsDown(ent))
-        {
-            _popupSystem.PopupEntity(Loc.GetString("martial-arts-fail-prone"), ent, ent);
+        if (!TryComp<RequireProjectileTargetComponent>(ent.Comp.CurrentTarget, out var isDowned))
             return false;
-        }
 
-        downed = IsDown(ent.Comp.CurrentTarget.Value);
+        downed = isDowned.Active;
         target = ent.Comp.CurrentTarget.Value;
 
-        if (knowledgeComponent.MartialArtsForm == proto.MartialArtsForm && !knowledgeComponent.Blocked)
+        if (knowledgeComponent.MartialArtsForm == form && !knowledgeComponent.Blocked)
+        {
             return true;
+        }
 
         foreach (var entInRange in _lookup.GetEntitiesInRange(ent, 8f))
         {
-            if (!TryPrototype(entInRange, out var entProto) || entProto.ID != "SpawnPointChef" ||
-                !knowledgeComponent.Blocked)
+            if (!TryPrototype(entInRange, out var proto) || proto.ID != "SpawnPointChef" || !knowledgeComponent.Blocked)
                 continue;
-
             return true;
         }
 
         return false;
-
-        bool IsDown(EntityUid uid)
-        {
-            if (!TryComp<StandingStateComponent>(uid, out var standingState))
-                return false;
-
-            return standingState.CurrentState != StandingState.Standing;
-        }
     }
 
     private void DoDamage(EntityUid ent,
         EntityUid target,
         string damageType,
-        float damageAmount,
+        int damageAmount,
         out DamageSpecifier damage,
         TargetBodyPart? targetBodyPart = null)
     {
@@ -558,12 +305,6 @@ public abstract partial class SharedMartialArtsSystem : EntitySystem
         if(!TryComp<TargetingComponent>(ent, out var targetingComponent))
             return;
         damage.DamageDict.Add(damageType, damageAmount);
-        if (TryComp(ent, out MartialArtModifiersComponent? modifiers))
-        {
-            var (mult, mod) = GetMultiplierModifier((ent, modifiers), MartialArtModifierType.Damage, false);
-            var modifierSet = GetDamageModifierSet(damage, mult, mod);
-            damage = DamageSpecifier.ApplyModifierSet(damage, modifierSet);
-        }
         _damageable.TryChangeDamage(target, damage, origin: ent, targetPart: targetBodyPart ?? targetingComponent.Target);
     }
 
