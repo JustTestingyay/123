@@ -111,8 +111,6 @@ using Robust.Shared.Prototypes;
 using Robust.Shared.Spawners;
 using System.Numerics;
 using Content.Goobstation.Shared.Chemistry;
-using Content.Server.Flash.Components;
-using Content.Shared.Inventory;
 
 namespace Content.Server.Chemistry.EntitySystems
 {
@@ -126,7 +124,6 @@ namespace Content.Server.Chemistry.EntitySystems
         [Dependency] private readonly ThrowingSystem _throwing = default!;
         [Dependency] private readonly ReactiveSystem _reactive = default!;
         [Dependency] private readonly SharedTransformSystem _transformSystem = default!;
-        [Dependency] private readonly GoobVaporSystem _goobVapor = default!; // Goobstation
 
         private const float ReactTime = 0.125f;
 
